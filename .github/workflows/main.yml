@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
@@ -27,21 +27,9 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Install ImageMagick
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y imagemagick
-
       - name: Create Android project
         shell: bash
         run: |
-          set -e
-
-          if [ ! -f icon.png ]; then
-            echo "ERRO: envie icon.png para a raiz do repositorio."
-            exit 1
-          fi
-
           mkdir -p app/src/main/java/com/example/kairou
 
           cat > settings.gradle.kts <<'EOF'
@@ -104,30 +92,13 @@ jobs:
           }
           EOF
 
-          # Criar icones em diferentes resolucoes
-          mkdir -p app/src/main/res/mipmap-mdpi
-          mkdir -p app/src/main/res/mipmap-hdpi
-          mkdir -p app/src/main/res/mipmap-xhdpi
-          mkdir -p app/src/main/res/mipmap-xxhdpi
-          mkdir -p app/src/main/res/mipmap-xxxhdpi
-
-          convert icon.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher.png
-          convert icon.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher.png
-          convert icon.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher.png
-          convert icon.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-          convert icon.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
-
               <application
                   android:label="Kairou"
-                  android:icon="@mipmap/ic_launcher"
-                  android:roundIcon="@mipmap/ic_launcher"
                   android:theme="@android:style/Theme.Material.NoActionBar"
                   android:usesCleartextTraffic="false">
-
                   <activity
                       android:name=".MainActivity"
                       android:exported="true">
