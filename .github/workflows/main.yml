@@ -14,24 +14,187 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Baixar código
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Instalar Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Configurar Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-      - name: Compilar APK
+      - name: Create Android project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/example/kairou
+
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "KairouAndroid"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.example.kairou"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "com.example.kairou"
+                  minSdk = 23
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <application
+                  android:label="Kairou"
+                  android:theme="@android:style/Theme.Material.NoActionBar"
+                  android:usesCleartextTraffic="false">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/example/kairou/MainActivity.kt <<'EOF'
+          package com.example.kairou
+
+          import android.app.Activity
+          import android.os.Bundle
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import android.webkit.WebChromeClient
+          import android.graphics.Color
+          import android.view.ViewGroup
+          import android.widget.FrameLayout
+          import android.widget.ProgressBar
+
+          class MainActivity : Activity() {
+              private lateinit var web: WebView
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  window.statusBarColor = Color.rgb(15, 15, 18)
+                  window.navigationBarColor = Color.BLACK
+
+                  val root = FrameLayout(this)
+                  root.setBackgroundColor(Color.BLACK)
+
+                  web = WebView(this)
+                  web.setBackgroundColor(Color.BLACK)
+                  web.settings.javaScriptEnabled = true
+                  web.settings.domStorageEnabled = true
+                  web.settings.mediaPlaybackRequiresUserGesture = true
+                  web.webViewClient = WebViewClient()
+                  web.webChromeClient = WebChromeClient()
+
+                  val progress = ProgressBar(
+                      this, null,
+                      android.R.attr.progressBarStyleHorizontal
+                  )
+                  progress.max = 100
+
+                  web.webChromeClient = object : WebChromeClient() {
+                      override fun onProgressChanged(
+                          view: WebView?, newProgress: Int
+                      ) {
+                          progress.progress = newProgress
+                          progress.visibility =
+                              if (newProgress >= 100) android.view.View.GONE
+                              else android.view.View.VISIBLE
+                      }
+                  }
+
+                  root.addView(web, FrameLayout.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT,
+                      ViewGroup.LayoutParams.MATCH_PARENT
+                  ))
+                  root.addView(progress, FrameLayout.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT, 6
+                  ))
+                  setContentView(root)
+
+                  if (savedInstanceState == null) {
+                      web.loadUrl("https://kairou.space/")
+                  } else {
+                      web.restoreState(savedInstanceState)
+                  }
+              }
+
+              override fun onSaveInstanceState(outState: Bundle) {
+                  web.saveState(outState)
+                  super.onSaveInstanceState(outState)
+              }
+
+              @Deprecated("Deprecated in Android")
+              override fun onBackPressed() {
+                  if (web.canGoBack()) web.goBack()
+                  else super.onBackPressed()
+              }
+
+              override fun onDestroy() {
+                  web.destroy()
+                  super.onDestroy()
+              }
+          }
+          EOF
+
+      - name: Build APK
         run: gradle assembleDebug
 
-      - name: Disponibilizar APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Kairou-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
           
