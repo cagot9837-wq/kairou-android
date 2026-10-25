@@ -1,75 +1,219 @@
+import os, textwrap, zipfile
 
-name: Kairou Android APK
+base = "/mnt/data/KairouAndroid"
+files = {
+"settings.gradle.kts": """
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories { google(); mavenCentral() }
+}
+rootProject.name = "KairouAndroid"
+include(":app")
+""",
+"build.gradle.kts": """
+plugins {
+    id("com.android.application") version "8.7.3" apply false
+    id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+}
+""",
+"gradle.properties": """
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+android.useAndroidX=true
+kotlin.code.style=official
+""",
+"app/build.gradle.kts": """
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "com.example.kairou"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.example.kairou"
+        minSdk = 23
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0"
+    }
+}
+""",
+"app/src/main/AndroidManifest.xml": """
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:allowBackup="false"
+        android:label="Kairou"
+        android:usesCleartextTraffic="false"
+        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:supportsRtl="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+""",
+"app/src/main/java/com/example/kairou/MainActivity.kt": """
+package com.example.kairou
+
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.os.Bundle
+import android.view.View
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebSettings
+import android.widget.FrameLayout
+import android.widget.ProgressBar
+import android.graphics.Color
+import android.view.Gravity
+import android.widget.TextView
+
+class MainActivity : Activity() {
+    private lateinit var webView: WebView
+    private lateinit var progress: ProgressBar
+    private lateinit var errorText: TextView
+
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        webView = WebView(this)
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 100
+            progress = 0
+        }
+        errorText = TextView(this).apply {
+            text = "Não foi possível carregar o site. Verifique sua conexão e tente novamente."
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setPadding(32, 32, 32, 32)
+            visibility = View.GONE
+            setOnClickListener { visibility = View.GONE; webView.reload() }
+        }
+
+        root.addView(webView, FrameLayout.LayoutParams(-1, -1))
+        root.addView(progress, FrameLayout.LayoutParams(-1, 5, Gravity.TOP))
+        root.addView(errorText, FrameLayout.LayoutParams(-1, -1))
+        setContentView(root)
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            loadsImagesAutomatically = true
+            mediaPlaybackRequiresUserGesture = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
+            userAgentString = userAgentString
+        }
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                progress.progress = newProgress
+                progress.visibility = if (newProgress >= 100) View.GONE else View.VISIBLE
+            }
+        }
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val uri = request?.url ?: return false
+                return uri.scheme != "https" && uri.scheme != "http"
+            }
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                if (request?.isForMainFrame == true) errorText.visibility = View.VISIBLE
+            }
+            override fun onPageFinished(view: WebView?, url: String?) {
+                errorText.visibility = View.GONE
+            }
+        }
+        if (savedInstanceState == null) {
+            webView.loadUrl("https://kairou.space/")
+        } else {
+            webView.restoreState(savedInstanceState)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        webView.saveState(outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    @Deprecated("Deprecated in Android")
+    override fun onBackPressed() {
+        if (::webView.isInitialized && webView.canGoBack()) webView.goBack()
+        else super.onBackPressed()
+    }
+
+    override fun onDestroy() {
+        if (::webView.isInitialized) {
+            webView.stopLoading()
+            webView.destroy()
+        }
+        super.onDestroy()
+    }
+}
+""",
+".github/workflows/build-apk.yml": """
+name: Build Android APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
 
 permissions:
   contents: read
 
 jobs:
-  apk:
-    name: Compilar Kairou
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
     steps:
-      - name: Baixar repositório
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Configurar Java
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Instalar componentes Android
-        run: |
-          sdkmanager --licenses
-          sdkmanager \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-
-      - name: Configurar Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Verificar arquivo do projeto
-        run: |
-          test -f kairou_android_app_source.zip || {
-            echo "::error::Coloque kairou_android_app_source.zip na raiz do repositório."
-            exit 1
-          }
-          unzip -t kairou_android_app_source.zip
-
-      - name: Extrair projeto
-        run: unzip -o kairou_android_app_source.zip -d .
-
-      - name: Verificar projeto Android
-        run: |
-          test -f kairou_android_app/settings.gradle.kts
-          test -f kairou_android_app/app/build.gradle.kts
-          test -f kairou_android_app/app/src/main/AndroidManifest.xml
-
-      - name: Compilar APK
-        working-directory: kairou_android_app
-        run: gradle assembleDebug --no-daemon
-
-      - name: Verificar APK
-        run: |
-          test -f kairou_android_app/app/build/outputs/apk/debug/app-debug.apk
-          mkdir -p out
-          cp kairou_android_app/app/build/outputs/apk/debug/app-debug.apk out/Kairou.apk
-          ls -lh out/Kairou.apk
-
-      - name: Disponibilizar APK
+      - name: Build debug APK
+        run: gradle assembleDebug
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Kairou-Android
-          path: out/Kairou.apk
-          retention-days: 14
-          
+          name: Kairou-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+"""
+}
+os.makedirs(base, exist_ok=True)
+for rel, content in files.items():
+    path = os.path.join(base, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(textwrap.dedent(content).strip() + "\n")
+
+zip_path = "/mnt/data/KairouAndroid-GitHub.zip"
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+    for root, _, names in os.walk(base):
+        for name in names:
+            full = os.path.join(root, name)
+            z.write(full, os.path.relpath(full, base))
+print(f"Projeto criado: {zip_path}")
+print("Inclui app Android Kotlin com WebView e workflow GitHub Actions para gerar APK debug.")
