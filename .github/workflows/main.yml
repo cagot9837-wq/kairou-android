@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -27,10 +27,81 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Create Android project
+      - name: Install Pillow
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pil
+
+      - name: Create Android project and icon
         shell: bash
         run: |
+          set -e
+
           mkdir -p app/src/main/java/com/example/kairou
+          mkdir -p app/src/main/res
+
+          # Gera automaticamente o icone Kairou
+          python3 - <<'PY'
+          from PIL import Image, ImageDraw
+          import os
+
+          size = 512
+          base = Image.new("RGB", (size, size), (7, 8, 13))
+          draw = ImageDraw.Draw(base)
+
+          # Fundo escuro com brilho azul discreto
+          for r in range(250, 0, -1):
+              color = (
+                  7,
+                  8 + int((250-r) * 0.015),
+                  13 + int((250-r) * 0.05)
+              )
+              draw.ellipse(
+                  (256-r, 256-r, 256+r, 256+r),
+                  fill=color
+              )
+
+          # Letra K geometrica
+          draw.polygon(
+              [(105, 90), (178, 90), (178, 225),
+               (310, 95), (405, 95), (265, 245),
+               (410, 420), (310, 420), (205, 290),
+               (178, 315), (178, 420), (105, 420)],
+              fill=(245, 248, 255)
+          )
+
+          # Anel azul ao redor da letra
+          ring = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+          rd = ImageDraw.Draw(ring)
+          rd.ellipse(
+              (35, 170, 480, 345),
+              outline=(0, 160, 255, 255),
+              width=30
+          )
+          ring = ring.rotate(-24, resample=Image.Resampling.BICUBIC)
+          base = base.convert("RGBA")
+          base.alpha_composite(ring)
+
+          # Reforca o contraste e salva em varias resolucoes
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192
+          }
+
+          for folder, pixels in sizes.items():
+              path = f"app/src/main/res/{folder}"
+              os.makedirs(path, exist_ok=True)
+              icon = base.resize(
+                  (pixels, pixels),
+                  Image.Resampling.LANCZOS
+              )
+              icon.save(f"{path}/ic_launcher.png")
+
+          print("Icone Kairou criado com sucesso.")
+          PY
 
           cat > settings.gradle.kts <<'EOF'
           pluginManagement {
@@ -95,10 +166,14 @@ jobs:
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
+
               <application
                   android:label="Kairou"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
                   android:theme="@android:style/Theme.Material.NoActionBar"
                   android:usesCleartextTraffic="false">
+
                   <activity
                       android:name=".MainActivity"
                       android:exported="true">
@@ -145,8 +220,7 @@ jobs:
                   web.webViewClient = WebViewClient()
 
                   val progress = ProgressBar(
-                      this,
-                      null,
+                      this, null,
                       android.R.attr.progressBarStyleHorizontal
                   )
                   progress.max = 100
@@ -173,8 +247,7 @@ jobs:
                   root.addView(
                       progress,
                       FrameLayout.LayoutParams(
-                          ViewGroup.LayoutParams.MATCH_PARENT,
-                          6
+                          ViewGroup.LayoutParams.MATCH_PARENT, 6
                       )
                   )
 
@@ -194,17 +267,12 @@ jobs:
 
               @Deprecated("Deprecated in Android")
               override fun onBackPressed() {
-                  if (web.canGoBack()) {
-                      web.goBack()
-                  } else {
-                      super.onBackPressed()
-                  }
+                  if (web.canGoBack()) web.goBack()
+                  else super.onBackPressed()
               }
 
               override fun onDestroy() {
-                  if (::web.isInitialized) {
-                      web.destroy()
-                  }
+                  if (::web.isInitialized) web.destroy()
                   super.onDestroy()
               }
           }
